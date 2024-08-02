@@ -10,9 +10,12 @@
 //! file: <https://github.com/Xilinx/embeddedsw/blob/5688620af40994a0012ef5db3c873e1de3f20e9f/lib/bsp/standalone/src/arm/cortexa9/armcc/asm_vectors.s>
 
 use core::arch::asm;
+
 use vex_sdk::{
     vexSystemDataAbortInterrupt, vexSystemFIQInterrupt, vexSystemPrefetchAbortInterrupt,
 };
+
+use crate::utils::exit;
 
 /// Undefined Instruction Vector
 ///
@@ -82,7 +85,7 @@ pub extern "C" fn prefetch_abort() -> ! {
     unsafe {
         vexSystemPrefetchAbortInterrupt();
     }
-    semihosting::process::exit(1);
+    exit(1);
 }
 
 /// Data Abort Vector
@@ -100,7 +103,7 @@ pub extern "C" fn data_abort() -> ! {
     unsafe {
         vexSystemDataAbortInterrupt();
     }
-    semihosting::process::exit(1);
+    exit(1);
 }
 
 /// Interrupt Request Vector

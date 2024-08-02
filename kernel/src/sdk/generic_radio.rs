@@ -1,6 +1,7 @@
 //! V5 Smart Radio
 
 use core::ffi::{c_char, c_int};
+
 use vex_sdk::*;
 
 pub fn vexDeviceGenericRadioConnection(

@@ -1,6 +1,7 @@
 //! V5 Smart Motor
 
 use core::ffi::c_double;
+
 use vex_sdk::*;
 
 pub fn vexDeviceMotorVelocitySet(device: V5_DeviceT, velocity: i32) {}

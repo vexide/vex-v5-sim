@@ -1,6 +1,7 @@
 //! Brain Display
 
 use core::ffi::{c_char, VaList};
+
 use vex_sdk::*;
 
 pub fn vexDisplayForegroundColor(col: u32) {}

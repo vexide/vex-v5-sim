@@ -2,8 +2,14 @@
 #![no_main]
 #![feature(c_variadic, naked_functions)]
 
+extern crate alloc;
+
 pub mod asm;
+pub mod drivers;
+pub mod logging;
+pub mod panic;
 pub mod sdk;
+pub mod utils;
 pub mod vectors;
 pub mod xil;
 
@@ -11,9 +17,13 @@ use core::{
     arch::asm,
     cell::UnsafeCell,
     ffi::c_void,
+    ops::Deref,
     sync::atomic::{AtomicU32, Ordering},
 };
 
+use drivers::uart::{self, uart1};
+use log::{info, LevelFilter};
+use logging::KernelLogger;
 use xil::{
     gic::{
         XScuGic, XScuGic_CfgInitialize, XScuGic_Connect, XScuGic_Enable, XScuGic_LookupConfig,
@@ -94,6 +104,12 @@ pub extern "C" fn reset() -> ! {
     // Setup private timer peripheral and register a tick interrupt handler
     // using the GIC.
     setup_timer();
+
+    // Setup UART1 driver and enable logging
+    let _ = uart1();
+    KernelLogger::init(LevelFilter::Trace).unwrap();
+
+    info!("Kernel ready - starting user code with vexStartup()");
 
     // Call user code!!
     unsafe {

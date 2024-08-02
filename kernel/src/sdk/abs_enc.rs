@@ -1,6 +1,7 @@
 //! V5 Rotation Sensor
 
 use core::ffi::c_double;
+
 use vex_sdk::*;
 
 pub fn vexDeviceAbsEncReset(device: V5_DeviceT) {}

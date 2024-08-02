@@ -14,4 +14,5 @@ pub mod exception;
 pub mod gic;
 pub mod time;
 pub mod timer;
+pub mod uart;
 pub mod wdt;

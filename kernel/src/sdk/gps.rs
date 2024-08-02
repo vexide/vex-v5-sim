@@ -1,6 +1,7 @@
 //! V5 GPS
 
 use core::ffi::c_double;
+
 use vex_sdk::*;
 
 pub fn vexDeviceGpsReset(device: V5_DeviceT) {}

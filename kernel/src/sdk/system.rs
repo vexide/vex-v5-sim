@@ -2,10 +2,12 @@
 
 use core::{arch::asm, ffi::c_void, sync::atomic::Ordering};
 
+use log::{error, info};
 use vex_sdk::*;
 
 use crate::{
     timer_interrupt_handler,
+    utils::exit,
     xil::{
         gic::{
             XScuGic_Connect, XScuGic_LookupConfig, XScuGic_SetPriorityTriggerType,
@@ -47,7 +49,7 @@ pub fn vexSystemStartupOptions() -> u32 {
     Default::default()
 }
 pub fn vexSystemExitRequest() {
-    semihosting::process::exit(0);
+    exit(0);
 }
 pub fn vexSystemHighResTimeGet() -> u64 {
     const PERIPH_BASE_ADDR: u32 = 0xF8F00000;
@@ -126,7 +128,7 @@ pub fn vexSystemTimerReinitForRtos(
             gic,
             XPAR_SCUTIMER_INTR,
             Some(handler),
-            timer as *mut XScuTimer as _
+            timer as *mut XScuTimer as _,
         );
 
         // Restart the timer and enable the timer interrupt
@@ -201,20 +203,20 @@ pub fn vexSystemWatchdogGet() -> u32 {
 pub fn vexSystemBoot() {}
 
 pub fn vexSystemUndefinedException() {
-    semihosting::println!("Undefined Instruction Exception");
+    error!("Undefined Instruction Exception");
 }
 pub fn vexSystemFIQInterrupt() {
-    semihosting::println!("FIQ");
+    info!("FIQ");
 }
 pub fn vexSystemIQRQnterrupt() {
-    semihosting::println!("IRQ");
+    info!("IRQ");
 }
 pub fn vexSystemSWInterrupt() {
-    semihosting::println!("Software Interrupt");
+    info!("Software Interrupt");
 }
 pub fn vexSystemDataAbortInterrupt() {
-    semihosting::println!("Data Abort Exception");
+    error!("Data Abort Exception");
 }
 pub fn vexSystemPrefetchAbortInterrupt() {
-    semihosting::println!("Prefetch Abort Exception");
+    error!("Prefetch Abort Exception");
 }

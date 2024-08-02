@@ -1,6 +1,7 @@
 //! CTE Workcell Arm
 
 use core::ffi::c_double;
+
 use vex_sdk::*;
 
 pub fn vexDeviceArmMoveTipCommandLinearAdv(

@@ -1,21 +1,24 @@
 //! USB Serial Communication
+#![warn(missing_docs)]
 
 use core::{
     ffi::{c_char, VaList},
     fmt,
 };
 
-use crate::Mutex;
 use heapless::spsc::Queue;
-use semihosting::io::{stdout, Write};
-use snafu::{OptionExt, Snafu};
+use log::{debug, trace};
+use snafu::Snafu;
 use vexide_core::{
-    io::{Cursor, Stdin},
+    io::{Cursor, Read, Stdin, Write},
     sync::LazyLock,
 };
 
+use crate::{drivers::uart::uart1, Mutex};
+
 mod util {
     use core::cmp;
+
     use vexide_core::io::{Cursor, Write};
 
     use super::SerialError;
@@ -62,8 +65,10 @@ mod util {
     }
 }
 
+/// The global serial driver instance which can be accessed from anywhere in the kernel.
 pub static SERIAL: LazyLock<Serial> = LazyLock::new(Serial::new);
 
+/// An error that can occur when interacting with the serial driver.
 #[derive(Debug, Snafu)]
 pub enum SerialError {
     /// An invalid channel was provided.
@@ -76,14 +81,14 @@ pub enum SerialError {
     StdioNotSupported,
     /// An I/O error occurred.
     #[snafu(display("An I/O error occurred: {inner}"))]
-    Io { inner: vexide_core::io::Error },
-    /// An I/O error occurred while flushing stdout.
-    #[snafu(display("An I/O error occurred while flushing stdout: {inner}"))]
-    Flush { inner: semihosting::io::Error },
+    Io {
+        /// The underlying I/O error.
+        inner: vexide_core::io::Error,
+    },
 }
 
 impl SerialError {
-    pub fn io_full_buffer() -> vexide_core::io::Error {
+    fn io_full_buffer() -> vexide_core::io::Error {
         vexide_core::io::Error::new(
             vexide_core::io::ErrorKind::WriteZero,
             "failed to write whole buffer",
@@ -93,7 +98,7 @@ impl SerialError {
 
 type Result<T> = core::result::Result<T, SerialError>;
 
-/// Serial driver based on ARM semihosting stdio operations.
+/// Buffering serial implementation based on UART1.
 pub struct Serial {
     stdout_buffer: Mutex<Cursor<[u8; vexide_core::io::Stdout::INTERNAL_BUFFER_SIZE]>>,
     // FIXME: capacity is actually N-1 instead of N
@@ -101,14 +106,10 @@ pub struct Serial {
     stdin_buffer: Mutex<Queue<u8, { Stdin::STDIN_BUFFER_SIZE }>>,
 }
 
-impl Default for Serial {
-    fn default() -> Self {
-        Self::new()
-    }
-}
-
 impl Serial {
-    pub fn new() -> Self {
+    /// Create a new instance of the serial driver. Instead of calling this directly, use the
+    /// global [`SERIAL`] instance.
+    fn new() -> Self {
         Self {
             stdout_buffer: Mutex::new(Cursor::new(
                 [0; vexide_core::io::Stdout::INTERNAL_BUFFER_SIZE],
@@ -185,22 +186,70 @@ impl Serial {
         }
     }
 
-    /// Flush the serial output buffer.
+    /// Flush the serial output buffer and update the input buffer.
     pub fn flush(&self) -> Result<()> {
+        // Flush output
+        self.flush_stdout()?;
+        // Receive input
+        self.recv_stdin()?;
+        Ok(())
+    }
+
+    fn flush_stdout(&self) -> Result<()> {
         let mut stdout_buffer = self.stdout_buffer.lock();
         if stdout_buffer.position() == 0 {
             return Ok(());
         }
-        let mut stdout = stdout().ok().context(StdioNotSupportedSnafu)?;
         let old_buffer = core::mem::replace(
             &mut *stdout_buffer,
             Cursor::new([0; vexide_core::io::Stdout::INTERNAL_BUFFER_SIZE]),
         );
         let len = old_buffer.position() as usize;
         let bytes = &old_buffer.into_inner()[0..len];
-        stdout
+        uart1()
             .write_all(bytes)
-            .map_err(|inner| FlushSnafu { inner }.build())?;
+            .map_err(|inner| IoSnafu { inner }.build())?;
+
+        Ok(())
+    }
+
+    fn recv_stdin(&self) -> Result<()> {
+        // trace!("recv_stdin");
+        let mut stdin_buffer = self.stdin_buffer.lock();
+
+        let mut buffer = [0; 1024];
+        // Flushing only happens when vexTasksRun is called so we want to move as much data
+        // into the input buffer as possible. This loop will read from stdin until the buffer
+        // is full or there is no more data to read.
+        while !stdin_buffer.is_full() {
+            // 1024 is an arbitrary medium-sized buffer that should be able to handle
+            // most input in 1 read
+            let mut len = uart1()
+                .read(&mut buffer)
+                .map_err(|inner| IoSnafu { inner }.build())?;
+            if len == 0 {
+                return Ok(());
+            }
+
+            trace!("Read {} bytes from stdin", len);
+
+            // this check ensures we don't overflow the buffer
+            len = core::cmp::min(len, stdin_buffer.capacity() - stdin_buffer.len());
+            for &byte in &buffer[..len] {
+                stdin_buffer
+                    .enqueue(byte)
+                    .expect("expected stdin buffer to have sufficient space");
+            }
+        }
+
+        // Discard any extra stdin input because there's not enough space for it. A real
+        // VEXos implementation wouldn't have a semihosting buffer so in our recreation
+        // we need to make sure not to take advantage of it.
+        while let Ok(byte) = uart1().read(&mut buffer) {
+            if byte == 0 {
+                break;
+            }
+        }
         Ok(())
     }
 }
@@ -213,30 +262,74 @@ impl core::fmt::Write for &Serial {
     }
 }
 
+/// Write a single character to the serial output buffer, returning
+/// the number of bytes written or -1 on error.
 pub fn vexSerialWriteChar(channel: u32, c: u8) -> i32 {
+    if SERIAL.num_free_bytes(channel).ok() == Some(0) {
+        debug!("Autoflush");
+        SERIAL.flush().unwrap();
+    }
     match SERIAL.write(channel, &[c]) {
+        Ok(0) => unreachable!(),
         Ok(n) => i32::try_from(n).unwrap(),
-        Err(_) => -1,
+        Err(err) => {
+            log::error!("Error writing to serial: {:?}", err);
+            -1
+        }
     }
 }
 
+/// Write the given buffer to the serial output buffer, returning
+/// the number of bytes written or -1 on error.
+///
 /// # Safety
 ///
 /// - `data` must be a valid pointer to a buffer of length `data_len`.
 pub unsafe fn vexSerialWriteBuffer(channel: u32, data: *const u8, data_len: u32) -> i32 {
+    trace!(
+        "vexSerialWriteBuffer: channel={}, data_len={}",
+        channel,
+        data_len
+    );
     let data = unsafe { core::slice::from_raw_parts(data, data_len as usize) };
 
+    if SERIAL.num_free_bytes(channel).ok() == Some(0) {
+        debug!("Autoflush");
+        SERIAL.flush().unwrap();
+    }
+
     match SERIAL.write(channel, data) {
+        Ok(0) => unreachable!(),
         Ok(n) => i32::try_from(n).unwrap(),
-        Err(_) => -1,
+        Err(err) => {
+            log::error!("Error writing to serial: {:?}", err);
+            -1
+        }
     }
 }
+
+/// Read a single byte from the serial input buffer, returning
+/// the byte or -1 if no data is available or an error occurred.
 pub fn vexSerialReadChar(channel: u32) -> i32 {
-    Default::default()
+    SERIAL
+        .read_byte(channel)
+        .ok()
+        .and_then(|byte| byte.map(i32::from))
+        .unwrap_or(-1)
 }
+
+/// Peek a single byte from the serial input buffer, returning
+/// the byte or -1 if no data is available or an error occurred.
 pub fn vexSerialPeekChar(channel: u32) -> i32 {
-    Default::default()
+    SERIAL
+        .peek_byte(channel)
+        .ok()
+        .and_then(|byte| byte.map(i32::from))
+        .unwrap_or(-1)
 }
+
+/// Check the number of free bytes in the serial output buffer, returning
+/// the number of free bytes or -1 on error.
 pub fn vexSerialWriteFree(channel: u32) -> i32 {
     SERIAL
         .num_free_bytes(channel)
@@ -244,6 +337,9 @@ pub fn vexSerialWriteFree(channel: u32) -> i32 {
         .unwrap_or(-1)
 }
 
+/// Format the given string and write it to the stdio serial output buffer, returning
+/// the number of bytes written or -1 on error.
+///
 /// # Safety
 ///
 /// - `format` must be a valid printf format string for the given `args`
@@ -258,7 +354,14 @@ pub unsafe fn vex_vprintf(format: *const c_char, args: VaList<'_, '_>) -> i32 {
     }
 }
 
+/// Format the given string and write it to the `out` buffer, returning
+/// the number of bytes written or -1 on error.
+///
 /// # Safety
+///
+/// For a similar but safer alternative, see [`vex_vsnprintf`] which will guard against
+/// buffer overflows. Or, better yet, use the Rust standard library's
+/// [`alloc::format`] macro.
 ///
 /// - `format` must be a valid printf format string for the given `args`
 /// - `out` must be a valid pointer to a buffer of sufficient length
@@ -294,6 +397,9 @@ pub unsafe fn vex_vsprintf(out: *mut c_char, format: *const c_char, args: VaList
     }
 }
 
+/// Format the given string and write at most `max_len` bytes of it
+/// to the `out` buffer, returning the number of bytes written or -1 on error.
+///
 /// # Safety
 ///
 /// - `format` must be a valid printf format string for the given `args`

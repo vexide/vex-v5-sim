@@ -1,4 +1,5 @@
 use core::ffi::c_double;
+
 use vex_sdk::*;
 
 pub fn vexDeviceAdiPortConfigSet(device: V5_DeviceT, port: u32, config: V5_AdiPortConfiguration) {}

@@ -2,6 +2,8 @@
 
 use core::ffi::{c_char, c_int, c_void};
 
+use log::trace;
+
 use super::SERIAL;
 
 /// Adds a new simple task to the task scheduler.
@@ -39,5 +41,6 @@ pub fn vexBackgroundProcessing() {}
 /// This more importantly handles many device reads and flushes
 /// serial.
 pub fn vexTasksRun() {
+    // trace!("vexTasksRun");
     SERIAL.flush().unwrap();
 }

@@ -1,6 +1,9 @@
 use std::{
+    io::{stdin, ErrorKind, Read, Write},
     path::PathBuf,
     process::{Command, Stdio},
+    thread::{self, sleep},
+    time::Duration,
 };
 
 use anyhow::Context;
@@ -8,7 +11,7 @@ use anyhow::Context;
 // TODO: fix this cursedness
 const DEFAULT_KERNEL: &str = concat!(
     env!("CARGO_MANIFEST_DIR"),
-    "/../kernel/target/armv7a-none-eabi/debug/kernel"
+    "/../kernel/target/armv7a-vex-v5/debug/kernel"
 );
 
 /// Simulate the VEX V5 robot program at <BINARY>.
@@ -58,21 +61,41 @@ fn main() -> anyhow::Result<()> {
                 opt.binary.display()
             ),
         ])
-        .args(["-nographic"])
-        .args([
-            // Semihosting interface allows host <-> guest communication
-            "-semihosting",
-            "-semihosting-config",
-            "enable=on,target=native",
-        ])
+        .args(["-display", "none"])
+        .args(["-chardev", "stdio,id=char0"])
+        .args(["-serial", "null"])
+        .args(["-serial", "chardev:char0"])
         .args(opt.qemu_args)
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit());
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
     if opt.gdb {
         qemu.args(["-S", "-s"]);
     }
     let mut qemu = qemu.spawn().context("Failed to start QEMU.")?;
+
+    let mut child_stdin = qemu.stdin.take().unwrap();
+    let mut child_stdout = qemu.stdout.take().unwrap();
+    thread::spawn(move || {
+        for byte in child_stdout.bytes() {
+            let byte = byte.unwrap();
+            print!("{}", byte as char);
+        }
+    });
+    let stdin = stdin();
+    for byte in stdin.lock().bytes() {
+        let byte = match byte {
+            Ok(byte) => byte,
+            Err(e) if e.kind() == ErrorKind::WouldBlock => {
+                println!(".");
+                sleep(Duration::from_millis(250));
+                continue;
+            }
+            Err(e) => panic!("Failed to read from stdin: {}", e),
+        };
+        print!("->{}", byte as char);
+        child_stdin.write_all(&[byte]).unwrap();
+    }
 
     qemu.wait().context("QEMU exited unexpectedly.")?;
 
