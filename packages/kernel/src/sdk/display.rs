@@ -259,12 +259,15 @@ pub fn draw_error_box(message: [Option<&str>; 3]) {
 }
 
 pub extern "C" fn vexDisplayForegroundColor(col: u32) {
+    log::debug!("[DEBUG SDK] vexDisplayForegroundColor called: col={:#08x}", col);
     DISPLAY.lock().set_foreground(Color(col));
 }
 pub extern "C" fn vexDisplayBackgroundColor(col: u32) {
+    log::debug!("[DEBUG SDK] vexDisplayBackgroundColor called: col={:#08x}", col);
     DISPLAY.lock().set_background(Color(col));
 }
 pub extern "C" fn vexDisplayErase() {
+    log::debug!("[DEBUG SDK] vexDisplayErase called");
     DISPLAY.lock().erase().unwrap();
 }
 pub extern "C" fn vexDisplayScroll(nStartLine: i32, nLines: i32) {
@@ -297,6 +300,19 @@ pub unsafe fn vexDisplayCopyRect(
     pSrc: *mut u32,
     srcStride: i32,
 ) {
+    let width = x2 - x1;
+    let height = y2 - y1;
+    log::debug!("[DEBUG SDK] vexDisplayCopyRect called: x1={}, y1={}, x2={}, y2={}, width={}, height={}, srcStride={}, pSrc={:?}", 
+        x1, y1, x2, y2, width, height, srcStride, pSrc);
+    
+    if pSrc.is_null() {
+        log::debug!("[DEBUG SDK] vexDisplayCopyRect: pSrc is null, returning");
+        return;
+    }
+    
+    let buffer_size = (width * height) as usize;
+    log::debug!("[DEBUG SDK] vexDisplayCopyRect: copying buffer of {} u32 elements", buffer_size);
+    
     DISPLAY
         .lock()
         .copy_buffer(
@@ -304,7 +320,7 @@ pub unsafe fn vexDisplayCopyRect(
             Point2 { x: x2, y: y2 },
             // todo: figure out what VEX does here rather than panicking on invalid stride.
             NonZeroU16::new(srcStride as u16).unwrap(),
-            unsafe { slice::from_raw_parts(pSrc, (x2 - x1) as usize * (y2 - y1) as usize) }
+            unsafe { slice::from_raw_parts(pSrc, buffer_size) }
                 .to_vec(),
         )
         .unwrap();
@@ -469,6 +485,7 @@ pub extern "C" fn vexDisplayClipRegionSet(x1: i32, y1: i32, x2: i32, y2: i32) {
     })
 }
 pub extern "C" fn vexDisplayRender(bVsyncWait: bool, bRunScheduler: bool) {
+    log::debug!("[DEBUG SDK] vexDisplayRender called: bVsyncWait={}, bRunScheduler={}", bVsyncWait, bRunScheduler);
     protocol::send_packet(HostBoundPacket::DisplayCommand {
         command: DisplayCommand::Render,
     })

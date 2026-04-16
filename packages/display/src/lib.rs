@@ -273,13 +273,33 @@ impl DisplayRenderer {
         let width = (bottom_right.x - top_left.x) as u32;
         let height = (bottom_right.y - top_left.y) as u32;
 
+        eprintln!(
+            "[DEBUG] draw_buffer: top_left=({}, {}), bottom_right=({}, {}), width={}, height={}, stride={}, buf_len={}",
+            top_left.x, top_left.y,
+            bottom_right.x, bottom_right.y,
+            width, height,
+            stride,
+            buf.len()
+        );
+
         if height == 0 || width == 0 {
+            eprintln!("[DEBUG] draw_buffer: early return - zero dimensions");
             return;
         }
 
         if stride as u32 != width {
+            eprintln!("[DEBUG] draw_buffer: ERROR - stride ({}) != width ({})", stride, width);
             unimplemented!("stride != width")
         }
+
+        // check if the buffer is all zeros (completely black screen)
+        let non_zero_count = buf.iter().filter(|&&b| b != 0).count();
+        let total_bytes = buf.len();
+        eprintln!(
+            "[DEBUG] draw_buffer: non_zero_bytes={}/{} ({:.2}%)",
+            non_zero_count, total_bytes,
+            if total_bytes > 0 { (non_zero_count as f64 / total_bytes as f64) * 100.0 } else { 0.0 }
+        );
 
         let pixmap = PixmapRef::from_bytes(buf, width, height).expect("nonzero");
 
@@ -294,6 +314,8 @@ impl DisplayRenderer {
             Transform::identity(),
             None,
         );
+
+        eprintln!("[DEBUG] draw_buffer: pixmap drawn successfully");
     }
 
     /// Returns the next display frame, if one is available.

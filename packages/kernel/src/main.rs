@@ -120,6 +120,7 @@ pub extern "C" fn _start() -> ! {
     // Send user code signature to host.
     log::debug!("Sending code signature to host.");
     protocol::send_packet(HostBoundPacket::CodeSignature(code_signature)).unwrap();
+    log::debug!("Code signature sent successfully!");
 
     // Execute user program's entrypoint function.
     //
@@ -129,10 +130,18 @@ pub extern "C" fn _start() -> ! {
         vexSystemLinkAddrGet()
     );
 
+    log::debug!("About to call vexTasksRun()...");
     unsafe {
         vexTasksRun(); // update devices once before running user code
+    }
+    log::debug!("vexTasksRun() completed, about to call vexStartup()...");
+
+    // add a more obvious marker
+    log::warn!("=== CALLING USER CODE (vexStartup) ===");
+    unsafe {
         vexStartup();
     }
+    log::warn!("=== USER CODE RETURNED (this should not happen) ===");
 
     unreachable!("User code should not return!");
 }

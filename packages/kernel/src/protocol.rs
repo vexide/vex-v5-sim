@@ -15,16 +15,8 @@ pub enum ProtocolError {
 }
 
 pub fn send_packet(packet: HostBoundPacket) -> Result<(), ProtocolError> {
-    let encoded = bincode::encode_to_vec(packet, bincode::config::standard())
-        .map_err(|err| ProtocolError::Encode { inner: err })?;
-
-    let mut bytes = Vec::new();
-    bytes.extend((encoded.len() as u32).to_le_bytes());
-    bytes.extend(encoded);
-
-    stdout().unwrap().write_all(&bytes).unwrap();
-
-    Ok(())
+    // Use UART1 to send data, matching the communication channel with the host
+    send_packet_uart(packet)
 }
 
 pub fn send_packet_uart(packet: HostBoundPacket) -> Result<(), ProtocolError> {

@@ -188,8 +188,25 @@ async fn forward_stdio(
     mut stdout: impl AsyncWrite + Unpin,
     mut stdin: impl AsyncRead + Unpin,
 ) -> tokio::io::Result<()> {
+    // Deal with USB -> stdout, and handle non-UTF-8 data using lossy conversion
+    let usb_to_stdout = async {
+        let mut buffer = vec![0u8; 1024];
+        loop {
+            match usb_read.read(&mut buffer).await {
+                Ok(0) => return Ok::<_, tokio::io::Error>(()), // EOF
+                Ok(n) => {
+                    // 将字节转换为字符串（lossy 方式处理无效 UTF-8）
+                    let text = String::from_utf8_lossy(&buffer[..n]);
+                    stdout.write_all(text.as_bytes()).await?;
+                    stdout.flush().await?;
+                }
+                Err(e) => return Err(e),
+            }
+        }
+    };
+
     tokio::try_join!(
-        tokio::io::copy(&mut usb_read, &mut stdout),
+        usb_to_stdout,
         tokio::io::copy(&mut stdin, &mut usb_write),
     )?;
     Ok(())

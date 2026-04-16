@@ -43,6 +43,7 @@ impl Display {
                         }
                         command = rx.recv() => {
                             if let Some(command) = command {
+                                eprintln!("[DEBUG] DisplayCommand received: {:?}", std::mem::discriminant(&command));
                                 let mut new_frame = None;
                                 match command {
                                     DisplayCommand::Draw {
@@ -81,6 +82,19 @@ impl Display {
                                                 stride,
                                                 buffer,
                                             } => {
+                                                let width = bottom_right.x - top_left.x;
+                                                let height = bottom_right.y - top_left.y;
+                                                let buffer_len = buffer.len();
+                                                let expected_len = (width * height) as usize;
+                                                eprintln!(
+                                                    "[DEBUG] CopyBuffer: top_left=({}, {}), bottom_right=({}, {}), width={}, height={}, stride={}, buffer_len={}, expected_len={}",
+                                                    top_left.x, top_left.y,
+                                                    bottom_right.x, bottom_right.y,
+                                                    width, height,
+                                                    stride.get(),
+                                                    buffer_len,
+                                                    expected_len
+                                                );
                                                 let buffer = bytemuck::cast_slice(&buffer);
                                                 renderer.draw_buffer(
                                                     buffer,
