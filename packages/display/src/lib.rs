@@ -278,22 +278,42 @@ impl DisplayRenderer {
         }
 
         if stride as u32 != width {
-            unimplemented!("stride != width")
+            // LVGL flushes with a stride equal to the full framebuffer width,
+            // even when only copying a sub-rectangle. Extract each row manually.
+            let bytes_per_pixel = 4usize; // u32 pixels (RGBA/BGRA)
+            let row_bytes = width as usize * bytes_per_pixel;
+            let mut packed = Vec::with_capacity(row_bytes * height as usize);
+            for row in 0..height as usize {
+                let row_start = row * stride * bytes_per_pixel;
+                let row_end = row_start + row_bytes;
+                packed.extend_from_slice(&buf[row_start..row_end]);
+            }
+            let pixmap = PixmapRef::from_bytes(&packed, width, height).expect("nonzero");
+            self.canvas.draw_pixmap(
+                top_left.x,
+                top_left.y,
+                pixmap,
+                &PixmapPaint {
+                    blend_mode: BlendMode::SourceOver,
+                    ..Default::default()
+                },
+                Transform::identity(),
+                None,
+            );
+        } else {
+            let pixmap = PixmapRef::from_bytes(buf, width, height).expect("nonzero");
+            self.canvas.draw_pixmap(
+                top_left.x,
+                top_left.y,
+                pixmap,
+                &PixmapPaint {
+                    blend_mode: BlendMode::SourceOver,
+                    ..Default::default()
+                },
+                Transform::identity(),
+                None,
+            );
         }
-
-        let pixmap = PixmapRef::from_bytes(buf, width, height).expect("nonzero");
-
-        self.canvas.draw_pixmap(
-            top_left.x,
-            top_left.y,
-            pixmap,
-            &PixmapPaint {
-                blend_mode: BlendMode::SourceOver,
-                ..Default::default()
-            },
-            Transform::identity(),
-            None,
-        );
     }
 
     /// Returns the next display frame, if one is available.
